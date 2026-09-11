@@ -1,0 +1,87 @@
+SEED: 3266
+OUTPUT_DIR: /sharedata/home/daihzh/protein/ESM4SL/esm4sl/output/esm2/attn/pc9_tail_test0.3_1e-5  # change
+
+DATALOADER:
+  BATCH_SIZE: 16
+  NUM_WORKERS: 8
+  PIN_MEMORY: False
+  DROP_LAST: False
+  PERSISTENT_WORKERS: False
+
+DATASET:
+  NAME: SLwholeembDataset
+  SL_ROOT: /sharedata/home/daihzh/protein/ESM4SL/data/SLKB/PC9_valid_tails/all  # change
+  CELL_LINE: null
+  TEST_FOLD: 0.3  # generally shouldn't be None, and MUST be in {0, 1, ..., cv_num-1}
+  NP_RATIO: null  # 1, 5, 20, None
+
+  ESM_ROOT: /sharedata/home/daihzh/protein/ESM4SL/data/ESM2_emb/slkb_pc9_tail_npy  # change
+  GENE_SEQ_PATH: null  # only if dataset is raw
+  IF_RAW_SEQ: False
+
+  TRANSFORM:
+    NAME: null
+
+MODEL:
+  NAME: AttnWrap
+  DEVICE: cuda
+
+  IN_CHANNELS: 1280
+  HIDDEN_CHANNELS: null
+  OUT_CHANNELS: 1
+  ACT_LAYER: gelu  # relu
+  NORM_LAYER: batchnorm  # layernorm?
+  KERNEL_SIZE: 3
+  EMBED_DIM: 320
+  NUM_HEADS: 4
+  NUM_LAYERS: 2
+  LINEAR_DEPTH: 2
+  DROPOUT: 0.2
+
+  CRITERION:
+    NAME: null
+    TYPE: null
+
+MODULE:
+  NAME: ClsModule
+  COMPILE: False
+
+  OPTIMIZER:
+    NAME: adamw
+    BASE_LR: 0.00001
+    MOMENTUM: 0
+    WEIGHT_DECAY: 0.01
+
+  SCHEDULER:
+    NAME: null #MultiStepLR
+    STEP_ON_EPOCHS: False
+
+    MILESTONES: [40, 70]
+    GAMMA: 0.1
+    WARMUP_FACTOR: 0.1
+    WARMUP_EPOCHS: 20
+    FACTOR: 0.1
+    PATIENCE: 10
+
+TRAINER:
+  STRATEGY: auto        # Set to `auto`, `ddp`, `deepspeed_stage_2`, `deepspeed_stage_3` ...
+  MIXED_PRECISION: False
+
+  CHECKPOINT:
+    EVERY_N_EPOCHS: 2  # validate every n epochs
+    SAVE_BEST: True    # If True, monitor will be required
+    MONITOR: loss
+
+  MAX_EPOCHS: 40        # If profiler is enabled, this will be *automatically* set to 1
+  LOG_EVERY_N_STEPS: 1
+  ACCUMULATE_GRAD_BATCHES: 1
+
+  CLIP_GRAD:
+    ALGORITHM: null
+    VALUE: null
+
+  DETERMINISTIC: False  # Set to True to enable cudnn.deterministic
+  BENCHMARK: False      # Set to True to enable cudnn.benchmark
+  PROFILER: null        # Set to `advanced` or `pytorch` to enable profiling
+  DETECT_ANOMALY: False # Set to True to enable anomaly detection
+  SYNC_BATCHNORM: False # Set to True to enable sync batchnorm

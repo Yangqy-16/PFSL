@@ -1,0 +1,81 @@
+SEED: 69
+OUTPUT_DIR: /sharedata/home/daihzh/protein/ESM4SL/esm4sl/output/esm2/linear/hela_tail_test0.3_5e-5_ns  # change
+
+DATALOADER:
+  BATCH_SIZE: 16
+  NUM_WORKERS: 8
+  PIN_MEMORY: False
+  DROP_LAST: False
+  PERSISTENT_WORKERS: False
+
+DATASET:
+  NAME: SLembDataset
+  SL_ROOT: /sharedata/home/daihzh/protein/ESM4SL/data/SLKB/HELA_valid_tails/all  # change
+  CELL_LINE: null
+  TEST_FOLD: 0.3  # generally should be in {0, 1, ..., cv_num-1} or test set ratio
+  NP_RATIO: null  # 1, 5, 20, None
+
+  ESM_ROOT: /sharedata/home/daihzh/protein/ESM4SL/data/ESM2_emb/slkb_hela_tail_npy  # change
+  GENE_SEQ_PATH: null  # only if dataset is raw
+  IF_RAW_SEQ: False
+
+  TRANSFORM:
+    NAME: null
+
+MODEL:
+  NAME: LinearProbing
+  DEVICE: cuda
+
+  IN_CHANNELS: 2560
+  HIDDEN_CHANNELS: null
+  OUT_CHANNELS: 1
+  ACT_LAYER: gelu  # relu
+  NORM_LAYER: batchnorm  # layernorm?
+
+  CRITERION:
+    NAME: null
+    TYPE: null
+
+MODULE:
+  NAME: ClsModule
+  COMPILE: False
+
+  OPTIMIZER:
+    NAME: adamw
+    BASE_LR: 0.00005
+    MOMENTUM: 0
+    WEIGHT_DECAY: 0.01
+
+  SCHEDULER:
+    NAME: null  # LinearWarmupLR
+    STEP_ON_EPOCHS: False
+
+TRAINER:
+  STRATEGY: auto        # Set to `auto`, `ddp`, `deepspeed_stage_2`, `deepspeed_stage_3` ...
+  MIXED_PRECISION: False
+
+  CHECKPOINT:
+    EVERY_N_EPOCHS: 2  # validate every n epochs
+    SAVE_BEST: True    # If True, monitor will be required
+    MONITOR: loss
+
+  MAX_EPOCHS: 40        # If profiler is enabled, this will be *automatically* set to 1
+  LOG_EVERY_N_STEPS: 1
+  ACCUMULATE_GRAD_BATCHES: 1
+
+  MILESTONES: [110, 160]
+  GAMMA: 0.1
+  WARMUP_FACTOR: 0.1
+  WARMUP_EPOCHS: 20
+  FACTOR: 0.1
+  PATIENCE: 10
+
+  CLIP_GRAD:
+    ALGORITHM: null
+    VALUE: null
+
+  DETERMINISTIC: False  # Set to True to enable cudnn.deterministic
+  BENCHMARK: False      # Set to True to enable cudnn.benchmark
+  PROFILER: null        # Set to `advanced` or `pytorch` to enable profiling
+  DETECT_ANOMALY: False # Set to True to enable anomaly detection
+  SYNC_BATCHNORM: False # Set to True to enable sync batchnorm

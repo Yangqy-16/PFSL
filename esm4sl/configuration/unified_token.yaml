@@ -1,0 +1,112 @@
+SEED: null
+OUTPUT_DIR: /data/qingyuyang/SL/PFSL/output/attn/{cl}/{scene}/{fold}  # change
+
+DATALOADER:
+  PIN_MEMORY: True
+  DROP_LAST: False
+  PERSISTENT_WORKERS: False
+  
+  TRAIN:
+    BATCH_SIZE: 16
+    NUM_WORKERS: 8
+
+  VAL:
+    BATCH_SIZE: 0
+    NUM_WORKERS: 0
+
+  TEST:
+    BATCH_SIZE: 0
+    NUM_WORKERS: 0
+
+  SAMPLE: True
+
+DATASET:
+  NAME: ProtDataset
+  
+  TRAIN_FILE: /data/qingyuyang/SL/PFSL/data/SLKB/{cl}/{scene}/sl_train_{fold}.csv  # change
+  VAL_FILE: /data/qingyuyang/SL/PFSL/data/SLKB/{cl}/{scene}/sl_test_{fold}.csv  # change
+  TEST_FILE: /data/qingyuyang/SL/PFSL/data/SLKB/{cl}/{scene}/sl_test_{fold}.csv  # change
+  
+  CL: ...
+  CL_ROOT: /data/qingyuyang/SL/PFSL/pfsl_process/cl_embed
+  OMICS_ROOT: /data/qingyuyang/SL/MVGCNiSL/data/cellline_feats
+
+  ESM_ROOT: /data/qingyuyang/SL/PFSL/data/pretrained_emb/esm2  # change
+  TEXT_PATH: /data/qingyuyang/SL/PFSL/data/prot_func/all_text.txt
+  TEXT_EMB_ROOT: /data/qingyuyang/SL/PFSL/data/pretrained_emb/protrek_text # biolinkbert
+  ASPECT_NUM: 24
+
+  GENE_SEQ_PATH: null  # only if dataset is raw
+  IF_RAW_SEQ: False
+  MAX_LEN: 1000
+
+  # TRANSFORM:
+  #   NAME: null
+
+MODEL:
+  NAME: UnifiedTokenPredictor
+  DEVICE: cuda
+
+  USE_SEQ: True
+  SEQ_USE_ATT: True
+
+  USE_FUNC: True
+  FUNC_USE_ATT: True
+  # FUNC_UNUSE_ASPECT: null
+  FUNC_USE_ASPECT: null
+
+  USE_CL: True
+
+  USE_OMICS: True
+
+  SEQ_IN_CHANNELS: 1280
+  FUNC_IN_CHANNELS: 1024
+  CL_IN_CHANNELS: 768
+
+  HIDDEN_CHANNELS: null
+  # OUT_CHANNELS: 1
+  # ACT_LAYER: gelu  # relu
+  # NORM_LAYER: batchnorm  # layernorm?
+
+  KERNEL_SIZE: 3
+  EMBED_DIM: 128
+  NUM_HEADS: 4
+  NUM_LAYERS: 1
+  LINEAR_DEPTH: 2
+  DROPOUT: 0.3
+
+  CRITERION:
+    NAME: null
+    TYPE: null
+
+MODULE:
+  NAME: PFnewModule
+  COMPILE: False
+
+  OPTIMIZER:
+    BASE_LR: 0.0001
+
+TRAINER:
+  STRATEGY: auto        # Set to `auto`, `ddp`, `deepspeed_stage_2`, `deepspeed_stage_3` ...
+  PRECISION: 32-true
+
+  CHECKPOINT:
+    EVERY_N_EPOCHS: 1  # validate every n epochs
+    SAVE_BEST: True    # If True, monitor will be required
+    MONITOR: loss    # avgmtr means (auprc + auroc) / 2
+    MONITOR_MODE: min
+
+  MAX_EPOCHS: 100        # If profiler is enabled, this will be *automatically* set to 1
+  LOG_EVERY_N_STEPS: 200
+  ACCUMULATE_GRAD_BATCHES: 1
+  NUM_SANITY_VAL_STEPS: 0
+
+  CLIP_GRAD:
+    ALGORITHM: null #norm
+    VALUE: null #1.0
+
+  DETERMINISTIC: False  # Set to True to enable cudnn.deterministic
+  BENCHMARK: False      # Set to True to enable cudnn.benchmark
+  PROFILER: null        # Set to `advanced` or `pytorch` to enable profiling
+  DETECT_ANOMALY: False # Set to True to enable anomaly detection
+  SYNC_BATCHNORM: False # Set to True to enable sync batchnorm

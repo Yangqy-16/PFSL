@@ -1,0 +1,115 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Notebooks and editors
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environments and local configuration
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+
+# Local credential-bearing source (do not commit until the key is removed)
+/pfsl_process/cl_llm.py
+
+# Runtime logs and experiment tracking
+*.log
+logs/
+runs/
+lightning_logs/
+wandb/
+tb_logs/
+
+# Project datasets and generated results
+/data/
+/sc_data/
+/output/
+/all_methods_count/
+/all_methods_metrics/
+/all_methods_rank_count/
+/pfsl_metric_count/
+
+# ESMC-SAE local artifacts and historical experiment records
+/.superpowers/
+/esmc_sae/.superpowers/
+/esmc_sae/cache/
+/esmc_sae/case_study/
+/esmc_sae/docs/
+/esmc_sae/experiment2/
+/esmc_sae/experiment3/
+/esmc_sae/interpret_data/
+/esmc_sae/manifests/
+/esmc_sae/reports/
+/esmc_sae/runs/
+/esmc_sae/bridge/
+/esmc_sae/configs/
+
+# Local pretrained models, embeddings, and derived analyses
+/pfsl_process/ESMC/
+/pfsl_process/PubmedBERT/
+/pfsl_process/cl_embed/
+/pfsl_process/retrieval/
+/pfsl_process/att_map/
+/pfsl_process/comparison/
+/pfsl_process/func_aspect_ablation/
+/pfsl_process/func_aspect_ablation_use/
+/pfsl_process/new_ablation/
+
+# Model weights and serialized/large data
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.msgpack
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.h5ad
+*.arrow
+*.feather
+*.parquet
+*.jsonl
+*.jsonl.gz
+*.csv.gz
+*.tsv.gz
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+
+# additional
+script
+tests
+*old*
+*.tsv
+*.csv
+tent.py
