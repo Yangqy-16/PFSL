@@ -117,3 +117,7 @@ tent.py
 pfsl/output
 *docs*
 pfsl_graph/
+pfsl/configuration/*
+!/pfsl/configuration/prosl.yaml
+pfsl/dataset/sl_emb.py
+pfsl/dataset/sl_raw.py
