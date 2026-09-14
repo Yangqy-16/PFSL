@@ -10,7 +10,7 @@ import torch
 
 from coach_pl.configuration import configurable
 from coach_pl.dataset import DATASET_REGISTRY
-from esm4sl.dataset.prosl import CollateBatch, ProtDataset
+from pfsl.dataset.prosl import CollateBatch, ProtDataset
 
 
 @DATASET_REGISTRY.register()

@@ -12,8 +12,8 @@ import torch
 
 from coach_pl.configuration import configurable
 from coach_pl.dataset import DATASET_REGISTRY
-from esm4sl.dataset.prosl import CollateBatch
-from esm4sl.dataset.sl import SLDataset
+from pfsl.dataset.prosl import CollateBatch
+from pfsl.dataset.sl import SLDataset
 
 
 OMICS_KINDS = ("cnv", "ess", "exp", "mut")

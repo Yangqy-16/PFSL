@@ -115,3 +115,5 @@ tests
 tent.py
 *temp*
 pfsl/output
+*docs*
+pfsl_graph/

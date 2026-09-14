@@ -32,8 +32,8 @@ from esmc_sae.all_context_train import (
 from esmc_sae.artifacts import save_cpu_torch, save_json
 from esmc_sae.calibrate import CLASSIFICATION_TAU
 from esmc_sae.manifest import file_sha256
-import esm4sl.model  # noqa: F401
-import esm4sl.module  # noqa: F401
+import pfsl.model  # noqa: F401
+import pfsl.module  # noqa: F401
 
 
 CASE_ROOT = (

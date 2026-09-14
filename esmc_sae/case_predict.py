@@ -31,8 +31,8 @@ from esmc_sae.case_train import (
 )
 import esmc_sae.dataset  # noqa: F401
 from esmc_sae.manifest import file_sha256
-import esm4sl.model  # noqa: F401
-import esm4sl.module  # noqa: F401
+import pfsl.model  # noqa: F401
+import pfsl.module  # noqa: F401
 
 
 OUTPUT_ROOT = (

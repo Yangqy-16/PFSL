@@ -1,7 +1,7 @@
 from coach_pl.tool.evaluate import arg_parser, main
 
 # Import this module to register the datasets, models, and modules.
-import esm4sl
+import pfsl
 
 # Use the default testing script.
 if __name__ == "__main__":

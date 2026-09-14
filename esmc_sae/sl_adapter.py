@@ -14,8 +14,8 @@ from esmc_sae.manifest import (
     verify_manifest_target as _verify_manifest_target,
 )
 from esmc_sae.train_dense import build_coach_config
-import esm4sl.model  # noqa: F401  # register the existing ProSL model
-import esm4sl.module  # noqa: F401  # register the existing Lightning module
+import pfsl.model  # noqa: F401  # register the existing ProSL model
+import pfsl.module  # noqa: F401  # register the existing Lightning module
 
 
 FORMAL_CHECKPOINT_NAME = "epoch=4-loss=0.3476.ckpt"

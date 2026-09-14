@@ -47,8 +47,8 @@ from esmc_sae.manifest import file_sha256
 from esmc_sae.metadata import get_feature_metadata
 from esmc_sae.sl_adapter import FrozenSLAdapter
 import esmc_sae.all_context_dataset  # noqa: F401
-import esm4sl.model  # noqa: F401
-import esm4sl.module  # noqa: F401
+import pfsl.model  # noqa: F401
+import pfsl.module  # noqa: F401
 
 
 ROOT = Path(__file__).resolve().parents[1]

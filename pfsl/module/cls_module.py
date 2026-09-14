@@ -16,7 +16,7 @@ from omegaconf import DictConfig
 from coach_pl.configuration import configurable
 from coach_pl.model import build_model  #, build_criterion
 from coach_pl.module import MODULE_REGISTRY
-from esm4sl.utils.metric import mean_loss, compute_metrics #, compute_reg_metrics
+from pfsl.utils.metric import mean_loss, compute_metrics #, compute_reg_metrics
 
 
 @MODULE_REGISTRY.register()
