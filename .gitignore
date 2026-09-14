@@ -113,3 +113,5 @@ tests
 *.tsv
 *.csv
 tent.py
+*temp*
+pfsl/output
