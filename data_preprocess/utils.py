@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import Counter
 from pathlib import Path
 import os
 import pickle
@@ -17,21 +18,21 @@ from scipy.sparse import csr_matrix, triu
 
 root = '/data/qingyuyang/SL/PFSL/data'
 
-GENE1_COLNAME = '0' #'gene1'
-GENE2_COLNAME = '1' #'gene2'
-CLASSLABEL_COLNAME = '2'
-REGLABEL_COLNAME = 'score'
+GENE1_COLNAME = 'gene1' #'gene1'
+GENE2_COLNAME = 'gene2' #'gene2'
+CLASSLABEL_COLNAME = 'label'
+# REGLABEL_COLNAME = 'score'
 CONTEXT_COLNAME = 'context'
 
 
 ############################# SLKB Cleaning and Preprocessing #############################
 
-with open(f'{root}/mapping/name2id.pkl', 'rb') as f1:
-    name2id = pickle.load(f1)  # Len = 27671. key: gene name, value: gene id, both str.
-gid2name = {gid: name for name, gid in name2id.items()}
+synlethdb = pd.read_csv(f'{root}/mapping/meta_table_9845.csv')
 
-with open(f'{root}/mapping/gid2uid.pkl', 'rb') as f2:
-    gid2uid = pickle.load(f2)  # Len = 9845. key: entrez id, value: unified id in SLBench, both int.
+gn2gid = dict(zip(synlethdb['symbol'], synlethdb['entrez_id']))
+gid2gn = {gid: gn for gn, gid in gn2gid.items()}
+
+gid2uid = dict(zip(synlethdb['entrez_id'], synlethdb['unified_id']))
 
 
 def count_gene_num(df: pd.DataFrame) -> int:
@@ -65,20 +66,10 @@ def remove_rows_with_condition(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# def format_df(df: pd.DataFrame) -> pd.DataFrame:
-#     df = df[['g1', 'g2', 'label', 'cell_line']]
-#     df.columns = [GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME, CONTEXT_COLNAME]
-#     df.drop_duplicates(inplace=True, ignore_index=True)
-#     return df
-
-
 def df_gene2id(df: pd.DataFrame) -> pd.DataFrame:
-    df[GENE1_COLNAME] = df[GENE1_COLNAME].map(name2id)
-    df[GENE2_COLNAME] = df[GENE2_COLNAME].map(name2id)
-    df = df.dropna()  # NOTE: some gene may not have id mappings
-    df.reset_index(drop=True, inplace=True)
-    df[GENE1_COLNAME] = df[GENE1_COLNAME].astype(int)
-    df[GENE2_COLNAME] = df[GENE2_COLNAME].astype(int)
+    df[GENE1_COLNAME] = df[GENE1_COLNAME].map(gn2gid)
+    df[GENE2_COLNAME] = df[GENE2_COLNAME].map(gn2gid)
+    df = df.dropna(ignore_index=True)  # NOTE: drop genes not in SynlethDB
     return df
 
 
@@ -104,7 +95,7 @@ def visualize_gene_freq(gene_count: dict, max_gene_show: int = 200, show_yval_st
     jump = int(gene_num / max_gene_show) if gene_num >= max_gene_show else 1
     sorted_list = sorted(gene_count.items(), key=lambda item: item[1], reverse=True)[::jump]
     keys, values = zip(*sorted_list)
-    keys = [gid2name[str(i)] for i in keys]
+    keys = [gid2gn[i] for i in keys]
 
     fig, ax = plt.subplots(figsize=(20, 8), dpi=300)
     bars = ax.bar(keys, values)
@@ -310,11 +301,12 @@ class SpecificSplit():
         _, _, cl_count = count_gene_freq(df)
         cl_tail_nodes = [gene for gene, freq in cl_count.items() if freq == 1]
         tail_df = df[df[GENE1_COLNAME].isin(cl_tail_nodes) & df[GENE2_COLNAME].isin(cl_tail_nodes)]
-        tail_df = tail_df.sample(frac=1)
+        tail_df = tail_df.sample(frac=1, random_state=self.random_seed)
 
         if len(tail_df) <= int(min_tail_rate * len(df)):
             print('This cell line is unsuitable for long-tail scene!')
-            os.removedirs(save_path)
+            if os.path.exists(save_path):
+                os.removedirs(save_path)
             return None
 
         target_len = int(test_rate * len(df))
@@ -358,48 +350,69 @@ class SpecificSplit():
             train_df.to_csv(f'{tail_save_path}/sl_train_{fold}.csv', index=False)
             val_df.to_csv(f'{tail_save_path}/sl_val_{fold}.csv', index=False)
 
-    def cell_line_specific_all(self):
+    def all_scenes(self):
         self.C1()
         self.C2()
+        self.C3()
         self.Tail()
 
 
-class TransferSplit():
+class OnetoOneSplit():
     def __init__(self, source_df: pd.DataFrame, target_df: pd.DataFrame,
-                 save_path: Path, fold_num: int = 5, valid_ratio: int = 5, random_seed: int = 43) -> None:
+                 save_path: Path, fold_num: int = 5, random_seed: int = 43) -> None:
         self.source_df = source_df
         self.target_df = target_df
         self.save_path = save_path
         os.makedirs(self.save_path, exist_ok=True)
         self.fold_num = fold_num
-        self.valid_ratio = valid_ratio
         self.random_seed = random_seed
 
-    def Transfer(self) -> None:  #df: pd.DataFrame, save_path: Path, fold_num: int = 5, valid_ratio: int = 5
+    def split(self) -> None:
         sl_np_x = self.source_df[[GENE1_COLNAME, GENE2_COLNAME]].to_numpy()
         sl_np_y = self.source_df[CLASSLABEL_COLNAME].to_numpy()
 
-        # index is the fold
-        index = 0
         kf = StratifiedKFold(n_splits=self.fold_num, shuffle=True, random_state=self.random_seed)
 
-        for train_index, test_index in kf.split(sl_np_x, sl_np_y):
-            train_x = sl_np_x[train_index]
-            train_y = sl_np_y[train_index].reshape(-1, 1)
-            train_data = np.concatenate((train_x, train_y), axis=1)
-
-            test_x = sl_np_x[test_index]
-            test_y = sl_np_y[test_index].reshape(-1, 1)
-            test_data = np.concatenate((test_x, test_y), axis=1)
-
-            train_data = numpy2df(train_data)
-            test_data = numpy2df(test_data)
-            assert are_dataframes_equal(pd.concat([train_data, test_data], ignore_index=True), self.df)
+        for index, (train_index, valid_index) in enumerate(kf.split(sl_np_x, sl_np_y)):
+            train_data = self.source_df.iloc[train_index].reset_index(drop=True)
+            valid_data = self.source_df.iloc[valid_index].reset_index(drop=True)
+            # assert are_dataframes_equal(
+            #     pd.concat([train_data, valid_data], ignore_index=True),
+            #     self.source_df,
+            # )
 
             train_data.to_csv(f'{self.save_path}/sl_train_{index}.csv', index=False)
-            test_data.to_csv(f'{self.save_path}/sl_val_{index}.csv', index=False)
+            valid_data.to_csv(f'{self.save_path}/sl_val_{index}.csv', index=False)
             self.target_df.to_csv(f'{self.save_path}/sl_test_{index}.csv', index=False)
-            index += 1
+
+
+class MultitoOneSplit(OnetoOneSplit):
+    def __init__(self, source_dfs: dict[str, pd.DataFrame], target_df: pd.DataFrame,
+                 target_context: str, save_path: Path, fold_num: int = 5,
+                 random_seed: int = 43) -> None:
+        if len(source_dfs) < 2:
+            raise ValueError('MultitoOneSplit requires at least two source contexts.')
+        if target_context in source_dfs:
+            raise ValueError('The target context cannot also be a source context.')
+
+        columns = [GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME]
+        source_parts = []
+        for context, source_df in source_dfs.items():
+            source_part = source_df[columns].copy()
+            source_part[CONTEXT_COLNAME] = context
+            source_parts.append(source_part)
+
+        source_df = pd.concat(source_parts, ignore_index=True)
+        target_df = target_df[columns].copy()
+        target_df[CONTEXT_COLNAME] = target_context
+
+        super().__init__(
+            source_df=source_df,
+            target_df=target_df,
+            save_path=save_path,
+            fold_num=fold_num,
+            random_seed=random_seed,
+        )
 
 
 def count_specific_statistics(table_save_path: Path) -> pd.DataFrame:
@@ -408,7 +421,7 @@ def count_specific_statistics(table_save_path: Path) -> pd.DataFrame:
 
     cell_lines = [i for i in os.listdir(table_save_path) if not i.endswith('.csv')]
 
-    for cl, scene in tqdm(itertools.product(cell_lines, ['C1', 'C2', 'Tail'])):
+    for cl, scene in tqdm(itertools.product(cell_lines, ['C1', 'C2', 'C3', 'Tail'])):
         path = f'{table_save_path}/{cl}/{scene}'
         if not os.path.exists(path) or not len(os.listdir(path)):
             continue
@@ -475,25 +488,25 @@ def gid2uid_all(data_path: Path, save_path: Path, fold: int = 5) -> None:
         test_df_uid.to_csv(f'{save_path}/sl_test_{i}.csv', index=False)
 
 
-def gid2uid_all_onetoone(source_cl_root: Path, original_cl_root: Path, cl: str, save_root: Path, fold: int = 5) -> None:
-    save_path = f'{save_root}/{cl}'
-    os.makedirs(save_path, exist_ok=True)
+# def gid2uid_all_onetoone(source_cl_root: Path, original_cl_root: Path, cl: str, save_root: Path, fold: int = 5) -> None:
+#     save_path = f'{save_root}/{cl}'
+#     os.makedirs(save_path, exist_ok=True)
 
-    for i in range(fold):
-        train_df_gid = pd.read_csv(f'{source_cl_root}/{cl}/sl_train_{i}.csv')
-        train_df_uid = df_gid2uid(train_df_gid)
-        assert len(train_df_uid) == len(train_df_gid)
-        train_df_uid.to_csv(f'{save_path}/sl_train_{i}.csv', index=False)
+#     for i in range(fold):
+#         train_df_gid = pd.read_csv(f'{source_cl_root}/{cl}/sl_train_{i}.csv')
+#         train_df_uid = df_gid2uid(train_df_gid)
+#         assert len(train_df_uid) == len(train_df_gid)
+#         train_df_uid.to_csv(f'{save_path}/sl_train_{i}.csv', index=False)
 
-        val_df_gid = pd.read_csv(f'{source_cl_root}/{cl}/sl_val_{i}.csv')
-        val_df_uid = df_gid2uid(val_df_gid)
-        assert len(val_df_uid) == len(val_df_gid)
-        val_df_uid.to_csv(f'{save_path}/sl_val_{i}.csv', index=False)
+#         val_df_gid = pd.read_csv(f'{source_cl_root}/{cl}/sl_val_{i}.csv')
+#         val_df_uid = df_gid2uid(val_df_gid)
+#         assert len(val_df_uid) == len(val_df_gid)
+#         val_df_uid.to_csv(f'{save_path}/sl_val_{i}.csv', index=False)
 
-    test_df_gid = pd.read_csv(f'{original_cl_root}/{cl}.csv')
-    test_df_uid = df_gid2uid(test_df_gid)
-    assert len(test_df_uid) == len(test_df_gid)
-    test_df_uid.to_csv(f'{save_root}/{cl}.csv', index=False)
+#     test_df_gid = pd.read_csv(f'{original_cl_root}/{cl}.csv')
+#     test_df_uid = df_gid2uid(test_df_gid)
+#     assert len(test_df_uid) == len(test_df_gid)
+#     test_df_uid.to_csv(f'{save_root}/{cl}.csv', index=False)
 
 
 def construct_data_npy(data_path: Path, save_path: Path, fold: int = 5, have_val: bool = True) -> None:

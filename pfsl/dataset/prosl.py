@@ -13,6 +13,7 @@ from pytorch_lightning.trainer.states import RunningStage
 from coach_pl.configuration import configurable
 from coach_pl.dataset import DATASET_REGISTRY
 from .sl import SLDataset
+from data_preprocess.utils import GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME, CONTEXT_COLNAME
 
 # FUNC_MAP = [
 #     'Protein names',
@@ -172,9 +173,9 @@ class ProtDataset(SLDataset):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, float]:
         data = {}
 
-        g1_idx = self.df['0'][index]
-        g2_idx = self.df['1'][index]
-        label = float(self.df['2'][index])
+        g1_idx = int(self.df[GENE1_COLNAME][index])
+        g2_idx = int(self.df[GENE2_COLNAME][index])
+        label = float(self.df[CLASSLABEL_COLNAME][index])
 
         if self.stage == RunningStage.TRAINING and random.uniform(0, 1) > 0.5:  # concat 1 and 2 in random order
             g2_idx, g1_idx = g1_idx, g2_idx

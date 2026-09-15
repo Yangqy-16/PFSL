@@ -48,9 +48,7 @@ tb_logs/
 /data/
 /sc_data/
 /output/
-/all_methods_count/
-/all_methods_metrics/
-/all_methods_rank_count/
+/esm4sl_metric_count/
 /pfsl_metric_count/
 
 # ESMC-SAE local artifacts and historical experiment records
@@ -107,17 +105,29 @@ tb_logs/
 *.7z
 
 # additional
-script
+script/*
+!/script/pf.py
 tests
 *old*
 *.tsv
 *.csv
 tent.py
 *temp*
-pfsl/output
 *docs*
+
 pfsl_graph/
+
+pfsl/output
 pfsl/configuration/*
 !/pfsl/configuration/prosl.yaml
+
 pfsl/dataset/sl_emb.py
 pfsl/dataset/sl_raw.py
+
+data_preprocess/ptgnn.ipynb
+data_preprocess/*test*
+data_preprocess/*.jpg
+
+pfsl/model/*att*
+pfsl/model/*token*
+pfsl/model/*lora*
