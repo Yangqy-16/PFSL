@@ -1,9 +1,9 @@
 # PF4SL (PFSL codebase)
 
-PF4SL predicts synthetic lethality from UniProt protein functional text,
+Official repository for "PF4SL: Integrating Protein Functional Descriptions, Protein Language
+Model, and Cell-line Omics for Cold-start Synthetic Lethality Prediction" currently under review at RECOMB. PF4SL predicts synthetic lethality from UniProt protein functional text,
 protein sequence representations, and omics measurements from the current
-cell line (CNV, ESS, expression, and mutation). The current paper model projects
-and concatenates these modalities without PPI neighbor aggregation.
+cell line (CNV, ESS, expression, and mutation).
 
 ## Retained source
 
@@ -81,9 +81,7 @@ python -m pytest tests/test_strict_protocol.py -q
 
 ## Git scope
 
-`.gitignore` uses an explicit source allowlist. SAE/LLM interpretability,
-baseline adapters, exploratory experiments, manuscript files, datasets,
-pretrained weights, cached features, and results stay local. Ignoring a file
+`.gitignore` uses an explicit source allowlist. Ignoring a file
 does not delete it. Add a matching exception to `.gitignore` when introducing
 a new main-model source file. Do not use `git add -f` to publish ignored assets.
 
