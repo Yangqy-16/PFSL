@@ -28,6 +28,7 @@ DATASET:
   TEST_FILE: /data/qingyuyang/SL/PFSL/data/SLKB/{cl}/{scene}/sl_test_{fold}.csv  # change
   
   CL: ...
+  TEST_CL: null  # Optional explicit target context; train/validation keep CL.
   CL_ROOT: /data/qingyuyang/SL/PFSL/pfsl_process/cl_embed
   OMICS_ROOT: /data/qingyuyang/SL/MVGCNiSL/data/cellline_feats
 
@@ -58,6 +59,16 @@ MODEL:
   USE_CL: False
 
   USE_OMICS: True
+
+  USE_PPI: False
+  PPI_ONLY: False
+  PPI:
+    BANK_PATH: /data/qingyuyang/SL/PFSL/data/ppi/physical_v1.pt
+    FANOUT: 16
+    SAMPLE_SEED: 42
+    HIDDEN_DIM: 64
+    DROPOUT: 0.1
+    RESIDUAL_SCALE: 0.1
 
   CALIBRATE: False
 

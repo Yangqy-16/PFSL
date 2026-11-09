@@ -1,80 +1,95 @@
-# PFSL
+# PF4SL (PFSL codebase)
 
-PFSL is a synthetic lethality (SL) prediction codebase using protein language
-model representations and additional biological modalities. It includes the
-ESM4SL model components and an ESM-C/SAE workflow for studying dependencies of
-the ESM-C branch.
+PF4SL predicts synthetic lethality from UniProt protein functional text,
+protein sequence representations, and omics measurements from the current
+cell line (CNV, ESS, expression, and mutation). The current paper model projects
+and concatenates these modalities without PPI neighbor aggregation.
 
-## Repository layout
+## Retained source
 
-- `esm4sl/`: the main ESM4SL model and training components.
-- `train.py`, `test.py`, `tent.py`: established root entry points.
-- `script/`: training, evaluation, transfer, and analysis launch scripts.
-- `data_preprocess/`: data preparation notebooks and utilities.
-- `pfsl/` and `pfsl_process/`: protein-function SL components and SAE utilities.
-- `esmc_sae/`: ESM-C/SAE interpretability workflow; see `esmc_sae/README.md`.
-- `esmc_sae/tests/`: ESM-C interpretability unit and regression tests.
-- `tests/pfsl_process/sae/`: ProTrek-SAE unit and regression tests.
-- `coach_pl/`: vendored upstream training framework source.
+- `pfsl/next/fusion.py`: the current `NoGraphFusion` model.
+- `pfsl/omics_scaling.py`: normalization fitted on training genes only.
+- `script/train_pfsl_next.py`: current training and evaluation entry point,
+  including structural modality ablations.
+- `script/prepare_ppi.py`, `script/prepare_next_bank.py`: shared feature-bank
+  preparation. These historical bank formats also contain graph and reference
+  features; the `no_graph_concat` model does not aggregate neighbors or use the
+  reference-cell dependency profile.
+- `train.py`, `test.py`, `script/pf.py`, `pfsl/configuration/prosl.yaml`:
+  original configuration-based entry points and their compatibility modules.
+- `data_preprocess/preprocess.ipynb`, `data_preprocess/utils.py`,
+  `data_preprocess/ccle_filter.ipynb`: dataset splitting and preparation.
+- `pfsl_process/pf.ipynb`, `pfsl_process/text_pre.py`,
+  `pfsl_process/utils.py`: original UniProt text preparation helpers.
+- `script/slkb_baseline_common.py`: shared split validation/loading used by
+  the main runner's multi-source option; it contains no baseline model.
+- `tests/test_strict_protocol.py`: normalization and structural ablation checks.
+- `coach_pl/`: vendored training framework, with upstream README and LICENSE.
 
-## Environment
+Some graph, DA, and legacy model modules remain because the existing entry
+points import them. Keeping these dependencies preserves the training logic;
+their presence does not enable them in the current paper model.
 
-Create the project environment from the repository root:
+## Environment and local assets
 
-```bash
-bash environment.sh
-```
-
-## Data preprocessing
-
-Data-preparation notebooks and utilities are under `data_preprocess/`.
-
-## Main training entry point
-
-A basic ESM4SL run can be launched with:
-
-```bash
-bash script/attn/train.sh
-```
-
-After training, inspect its TensorBoard output with:
+The experiments use the `DTI_new` environment:
 
 ```bash
-tensorboard --logdir output/attn/<name_of_your_run>
+conda activate DTI_new
 ```
 
-For multi-cell-line or multi-scene runs, see
-`script/attn/specific_all_in_one.py`. The corresponding `script/mlp/`
-launchers provide the ESM-2+MLP baseline.
+`environment.sh` is the historical environment recipe and uses an older
+environment name. Dataset preparation also retains local asset paths; adjust
+these paths when moving the project to another machine.
 
-## Local artifacts
+Data and pretrained representations are restored separately from Git. The
+current runner expects:
 
-Datasets, pretrained weights, embeddings, caches, checkpoints, logs, and
-experiment outputs are intentionally excluded from Git. Existing local files
-remain in their repository-relative locations, and active configurations use
-the `PFSL` root. Historical artifacts are not rewritten, so any embedded
-absolute path containing the former directory name may require manual
-resolution. A clone requires the corresponding private data and model assets
-to be restored separately.
+- Frozen feature bank: `data/ppi/next_v1.pt` (or pass `--bank`).
+- Gene mapping: `data/mapping/name2id.pkl`.
+- Specific splits: `data/SLKB/specific_1:1/<cell>/<scene>/sl_{train,val,test}_<fold>.csv`;
+  original-ratio splits use `data/SLKB/specific/`.
+- Current-cell omics: `../MVGCNiSL/data/cellline_feats/<cell>_{cnv,ess,exp,mut}.txt`.
+  This directory supplies data files; the model does not import MVGCN-iSL code.
 
-The checksum-bound `esmc_sae/configs/mvp_a549_c1_fold0.yaml` is retained as a
-frozen historical configuration and therefore still records the former root.
+## Current paper model
 
-## Tests
+From the repository root, for one balanced A549 gene-holdout fold:
 
 ```bash
-python -m pytest esmc_sae/tests -q
-python -m pytest tests/pfsl_process/sae -q
+python script/train_pfsl_next.py --stage no_graph_concat --fusion-ablation full \
+  --ablation-mode remove --omics-normalization train_genes \
+  --source A549 --scene C3 --fold 0 --data-root data/SLKB/specific_1:1 \
+  --device cuda --output output/pf4sl/A549/C3/fold0
 ```
 
-## Vendored dependency
+`C1` denotes pair-holdout and `C3` denotes gene-holdout. For original-ratio
+experiments, set `--data-root data/SLKB/specific`. To remove a modality, replace
+`full` with `no_text`, `no_seq`, or `no_omics`; `--ablation-mode remove` removes
+that branch. Keep `--omics-normalization train_genes` explicit: the runner
+retains historical defaults for compatibility. This normalization option
+currently supports specific experiments, not cross-cell transfer.
 
-`coach_pl/` is vendored from https://github.com/DuskNgai/coach-pl. Its upstream
-README and LICENSE are retained in that directory.
+Each run requires an empty output directory and writes the checkpoint,
+configuration, normalization statistics, metrics, and pair-level predictions
+there. Existing experiment outputs are not overwritten by this command.
 
-## References and attribution
+```bash
+python script/train_pfsl_next.py --help
+python -m pytest tests/test_strict_protocol.py -q
+```
 
-The training framework is based on
-[coach-pl](https://github.com/DuskNgai/coach-pl), and portions of the protein
-language model integration are credited to
+## Git scope
+
+`.gitignore` uses an explicit source allowlist. SAE/LLM interpretability,
+baseline adapters, exploratory experiments, manuscript files, datasets,
+pretrained weights, cached features, and results stay local. Ignoring a file
+does not delete it. Add a matching exception to `.gitignore` when introducing
+a new main-model source file. Do not use `git add -f` to publish ignored assets.
+
+## Attribution
+
+The training framework is vendored from
+[coach-pl](https://github.com/DuskNgai/coach-pl); its upstream README and LICENSE
+are retained. Protein language model integration includes components based on
 [ESM](https://github.com/facebookresearch/esm).

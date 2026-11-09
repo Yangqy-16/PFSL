@@ -7,20 +7,24 @@ import itertools
 import warnings
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1' #0,1,2
+os.environ['CUDA_VISIBLE_DEVICES'] = '0' #0,1,2
 
-output_root = '/data/qingyuyang/SL/PFSL/output/pfsl_updated'
+data_dir = '/data/qingyuyang/SL/PFSL/data/SLKB/specific_1:1' #
+output_root = '/data/qingyuyang/SL/PFSL/output/pfsl_updated_1:1' #original_ratio
 
-cell_lines = ['MELJUSO', 'A549', 'HS944T'] #'HSC5', 'A549' || NOTE: 'NSMexp_indeptest_1:1', 'NSMexp_indeptest_1:5' HS944T A549 IPC298 MEL202 MEWO PK1 HELA A375 GI1 RPE1 PATU8988S HS936T HS944T HSC5 NSMexp_indeptest_1:1
-scenes = ['C1', 'C2', 'Tail'] #
+cell_lines = ['A549', 'PK1', 'PATU8988S', 'IPC298', 'JURKAT', '22RV1'] # 'HSC5', 'A549' 'NSMexp_indeptest_1:1', 'NSMexp_indeptest_1:5'
+scenes = ['C1', 'C3'] #'C2', 'Tail'
 
 # use_aspects = list(range(0, 24)) #['null'] + 
 
 for cell_line, scene in list(itertools.product(cell_lines, scenes)): #, use_func, use_aspects, unuse_func  
+    if scene == 'Tail' and not os.path.exists(f'{data_dir}/{cell_line}/{scene}'):
+        scene = 'C3'
+
     print(f'======================== {cell_line} / {scene} ========================')
     # print(f'======================== use_func: {use_func} ========================')
 
-    data_root = f'/data/qingyuyang/SL/PFSL/data/SLKB/specific_1:1/{cell_line}/{scene}'  # NOTE: specific synlethdb slbench SLKB/specific SLKB/case
+    data_root = f'{data_dir}/{cell_line}/{scene}'  # NOTE: specific synlethdb slbench SLKB/specific SLKB/case
 
     table_path = f'{output_root}/{cell_line}/{scene}' #/{use_func}  if unuse_func != 'null' else f'{output_root}/{cell_line}/{scene}'
     os.makedirs(table_path, exist_ok=True)

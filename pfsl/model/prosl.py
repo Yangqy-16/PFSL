@@ -3,6 +3,7 @@ from .attn_wrap import *
 from .protfunc import *
 from .omics import CellLineFiLM
 from .calibrator import FeatureCalibrator
+from .ppi import PPIResidual
 
 
 def padded_to_variadic(rep: Tensor, mask: Tensor) -> list[Tensor]:
@@ -57,6 +58,18 @@ class ProSL(nn.Module):
     def __init__(self, cfg) -> None:
         super().__init__()
         self.cfg = cfg
+        self.ppi_only = cfg.MODEL.get('PPI_ONLY', False)
+        if self.ppi_only:
+            if not cfg.MODEL.get('USE_PPI', False):
+                raise ValueError('PPI_ONLY requires USE_PPI=True')
+            ppi = cfg.MODEL.PPI
+            self.ppi_branch = PPIResidual(
+                cfg.MODEL.SEQ_IN_CHANNELS, cfg.MODEL.FUNC_IN_CHANNELS,
+                ppi.HIDDEN_DIM, ppi.DROPOUT, 1.0,
+                cfg.MODEL.USE_SEQ, cfg.MODEL.USE_FUNC, cfg.MODEL.USE_OMICS,
+                standalone=True,
+            )
+            return
         
         self.modal_num = cfg.MODEL.USE_SEQ + cfg.MODEL.USE_FUNC
         assert self.modal_num >= 1
@@ -92,6 +105,13 @@ class ProSL(nn.Module):
         #     self.out_classifier = MLP(in_features=cfg.MODEL.EMBED_DIM, out_features=1)
         # else:
         self.out_classifier = nn.Linear(in_features=cfg.MODEL.EMBED_DIM * self.modal_num * 2, out_features=1)
+        if cfg.MODEL.get('USE_PPI', False):
+            ppi = cfg.MODEL.PPI
+            self.ppi_branch = PPIResidual(
+                cfg.MODEL.SEQ_IN_CHANNELS, cfg.MODEL.FUNC_IN_CHANNELS,
+                ppi.HIDDEN_DIM, ppi.DROPOUT, ppi.RESIDUAL_SCALE,
+                cfg.MODEL.USE_SEQ, cfg.MODEL.USE_FUNC, cfg.MODEL.USE_OMICS,
+            )
 
     @classmethod
     def from_config(cls, cfg):
@@ -100,6 +120,8 @@ class ProSL(nn.Module):
         }
 
     def forward(self, data: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
+        if self.ppi_only:
+            return self.ppi_branch(data), []
         fused_emb = []
         att = []
         g1_parts = []
@@ -122,7 +144,12 @@ class ProSL(nn.Module):
             # fused_emb.append(self.seq_downsample(seq_emb))
         
         if self.cfg.MODEL.USE_FUNC:
-            g1_func_emb, g2_func_emb = self.pf_pre(data['g1_func_emb'], data['g1_func_mask'], data['g2_func_emb'], data['g2_func_mask'])
+            if self.cfg.MODEL.FUNC_USE_ATT:
+                g1_func_emb, g2_func_emb = self.pf_pre(data['g1_func_emb'], data['g1_func_mask'], data['g2_func_emb'], data['g2_func_mask'])
+            else:
+                # ProtDataset already averages valid functional-text aspects
+                # when attention is disabled; there are no aspect masks here.
+                g1_func_emb, g2_func_emb = data['g1_func_emb'], data['g2_func_emb']
             
             # if self.cfg.MODEL.CALIBRATE:
             #     g1_func_emb = self.calibrator(g1_func_emb)
@@ -167,7 +194,10 @@ class ProSL(nn.Module):
         combined = torch.cat([g1_embed * g2_embed, torch.abs(g1_embed - g2_embed)], dim=-1)
         output = self.out_classifier(combined) #torch.cat([g1_embed, g2_embed], dim=1)  fused_emb
         
-        return output.squeeze(-1), att
+        output = output.squeeze(-1)
+        if hasattr(self, 'ppi_branch'):
+            output = output + self.ppi_branch(data)
+        return output, att
 
 
 # @MODEL_REGISTRY.register()

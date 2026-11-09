@@ -47,8 +47,9 @@ def mean(iterable: list[float]) -> float:
 
 
 class CollateBatch():
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, ppi_builder=None):
         self.cfg = cfg
+        self.ppi_builder = ppi_builder
 
     def padding(self, genes: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         count_len = [g.shape[0] for g in genes]
@@ -77,6 +78,11 @@ class CollateBatch():
         data['g1_idx'] = torch.tensor([d['g1_idx'] for d in batch])
         data['g2_idx'] = torch.tensor([d['g2_idx'] for d in batch])
         data['label'] = torch.tensor([d['label'] for d in batch])
+        if self.cfg.MODEL.get('PPI_ONLY', False):
+            if self.ppi_builder is None:
+                raise ValueError('PPI_ONLY requires a PPI batch builder')
+            data.update(self.ppi_builder(data['g1_idx'].tolist(), data['g2_idx'].tolist()))
+            return data
 
         if self.cfg.MODEL.USE_SEQ:
             if self.cfg.MODEL.SEQ_USE_ATT:
@@ -100,7 +106,9 @@ class CollateBatch():
             data['g1_omics'] = torch.stack([d['g1_omics'] for d in batch])
             data['g2_omics'] = torch.stack([d['g2_omics'] for d in batch])
 
-        return data                
+        if self.ppi_builder is not None:
+            data.update(self.ppi_builder(data['g1_idx'].tolist(), data['g2_idx'].tolist()))
+        return data
 
 
 @DATASET_REGISTRY.register()
@@ -108,6 +116,7 @@ class ProtDataset(SLDataset):
     @configurable
     def __init__(self, cfg: DictConfig, stage: RunningStage) -> None:
         super().__init__(cfg, stage)
+        self.cell_context = (cfg.DATASET.get('TEST_CL') or cfg.DATASET.CL) if stage == RunningStage.TESTING else cfg.DATASET.CL
 
         if cfg.MODEL.USE_FUNC:
             self.text_emb_root = cfg.DATASET.TEXT_EMB_ROOT
@@ -123,7 +132,7 @@ class ProtDataset(SLDataset):
             with open('/data/qingyuyang/SL/PFSL/data/mapping/name2id.pkl', 'rb') as f:
                 gn2gid = {key: int(value) for key, value in pickle.load(f).items()}
             
-            omics_root, cl = cfg.DATASET.OMICS_ROOT, cfg.DATASET.CL
+            omics_root, cl = cfg.DATASET.OMICS_ROOT, self.cell_context
             
             with open(f'{omics_root}/{cl}_cnv.txt', 'r') as f:
                 self.cnv = dict([l.split() for l in f.readlines()])
@@ -140,6 +149,16 @@ class ProtDataset(SLDataset):
             with open(f'{omics_root}/{cl}_mut.txt', 'r') as f:
                 self.mut = dict([l.split() for l in f.readlines()])
             self.mut = {gn2gid[key]: float(value) for key, value in self.mut.items() if key in gn2gid}
+
+        self.ppi_builder = None
+        if cfg.MODEL.get('USE_PPI', False):
+            from pfsl.ppi import PPIBatchBuilder
+            # This first version is single-context. Never silently use source
+            # omics for samples explicitly annotated as another cell line.
+            if CONTEXT_COLNAME in self.df and not self.df[CONTEXT_COLNAME].astype(str).eq(str(self.cell_context)).all():
+                raise ValueError('PPI dataset context differs from configured CL/TEST_CL')
+            omics = [self.cnv, self.ess, self.exp, self.mut] if cfg.MODEL.USE_OMICS else []
+            self.ppi_builder = PPIBatchBuilder.from_config(cfg, omics)
 
     def text_emb(self, gid: int):
         if os.path.exists(os.path.join(self.text_emb_root, f"{gid}.pt")):
@@ -167,7 +186,9 @@ class ProtDataset(SLDataset):
             if valid_mask.any():
                 g_func = g_func[valid_mask].mean(dim=0)
             else:
-                g_func = g_func.mean(dim=0)
+                # No observed functional text: deterministic empty pooled
+                # representation, including when the embedding file is absent.
+                g_func = torch.zeros_like(g_func[0])
             return g_func, None
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, float]:
@@ -181,6 +202,8 @@ class ProtDataset(SLDataset):
             g2_idx, g1_idx = g1_idx, g2_idx
 
         data['g1_idx'], data['g2_idx'], data['label'] = g1_idx, g2_idx, label
+        if self.cfg.MODEL.get('PPI_ONLY', False):
+            return data
 
         if self.cfg.MODEL.USE_SEQ:
             gene1 = torch.load(f"{self.cfg.DATASET.ESM_ROOT}/{g1_idx}.pt", weights_only=True)
@@ -195,7 +218,7 @@ class ProtDataset(SLDataset):
             data['g2_func_emb'], data['g2_func_mask'] = self.text_emb(data['g2_idx'])
         
         if self.cfg.MODEL.USE_CL:
-            data['cl_emb'] = torch.load(f'{self.cfg.DATASET.CL_ROOT}/{self.cfg.DATASET.CL}.pt', weights_only=True).squeeze()
+            data['cl_emb'] = torch.load(f'{self.cfg.DATASET.CL_ROOT}/{self.cell_context}.pt', weights_only=True).squeeze()
         
         if self.cfg.MODEL.USE_OMICS:
             g1_cnv = self.cnv.get(g1_idx, mean(self.cnv.values()))
@@ -214,4 +237,4 @@ class ProtDataset(SLDataset):
 
     @property
     def collate_fn(self):
-        return CollateBatch(self.cfg)
+        return CollateBatch(self.cfg, self.ppi_builder)

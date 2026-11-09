@@ -29,10 +29,16 @@ CONTEXT_COLNAME = 'context'
 
 synlethdb = pd.read_csv(f'{root}/mapping/meta_table_9845.csv')
 
-gn2gid = dict(zip(synlethdb['symbol'], synlethdb['entrez_id']))
+gn2gid = dict(zip(
+    list(synlethdb['symbol']),
+    [int(i) for i in list(synlethdb['entrez_id'])]
+))
 gid2gn = {gid: gn for gn, gid in gn2gid.items()}
 
-gid2uid = dict(zip(synlethdb['entrez_id'], synlethdb['unified_id']))
+gid2uid = dict(zip(
+    [int(i) for i in list(synlethdb['entrez_id'])],
+    [int(i) for i in list(synlethdb['unified_id'])]
+))
 
 
 def count_gene_num(df: pd.DataFrame) -> int:
@@ -53,23 +59,66 @@ def count_pn_ratio(df: pd.DataFrame) -> tuple[int, int, int, float]:
 def select_cl_from_slkb(df: pd.DataFrame, cl: str) -> pd.DataFrame:
     cl_df = df[df[CONTEXT_COLNAME] == cl]
     cl_df.reset_index(drop=True, inplace=True)
-    cl_df.drop([CONTEXT_COLNAME], axis=1, inplace=True)
+    # cl_df.drop([CONTEXT_COLNAME], axis=1, inplace=True)
     return cl_df
 
 
+def canonicalize_pairs(df: pd.DataFrame) -> pd.DataFrame:
+    """Copy and order endpoints after gene-ID mapping; context stays part of identity."""
+    columns = [GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME]
+    if CONTEXT_COLNAME in df.columns:
+        columns.append(CONTEXT_COLNAME)
+    if df[columns].isna().any().any():
+        raise ValueError('Pair identity, context and label must not contain missing values.')
+    if not df[CLASSLABEL_COLNAME].isin([0, 1]).all():
+        raise ValueError('Expected binary pair labels 0/1.')
+    result = df.copy()
+    result[[GENE1_COLNAME, GENE2_COLNAME]] = np.sort(
+        result[[GENE1_COLNAME, GENE2_COLNAME]].to_numpy(), axis=1)
+    return result
+
+
+def _pair_columns(df: pd.DataFrame) -> list[str]:
+    return [GENE1_COLNAME, GENE2_COLNAME] + ([CONTEXT_COLNAME] if CONTEXT_COLNAME in df.columns else [])
+
+
 def remove_rows_with_condition(df: pd.DataFrame) -> pd.DataFrame:
-    duplicates = df[df.duplicated(subset=[GENE1_COLNAME, GENE2_COLNAME, CONTEXT_COLNAME], keep=False)]
-    for _, group in duplicates.groupby([GENE1_COLNAME, GENE2_COLNAME, CONTEXT_COLNAME]):
-        assert len(group[CLASSLABEL_COLNAME].unique()) == len(group), f"Pair ({group.iloc[0][GENE1_COLNAME]}, {group.iloc[0][GENE2_COLNAME]}) have duplicate same labels!"
-        df.drop(group.index, inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    return df
+    """Keep one observation per unordered pair/context; drop ALL conflicting labels.
+
+    This preserves the original conflict-removal policy, including reverse pairs.
+    It also works on single-cell tables without a context column, without mutation.
+    """
+    result = canonicalize_pairs(df)
+    keys = _pair_columns(result)
+    conflicts = result.groupby(keys)[CLASSLABEL_COLNAME].transform('nunique').gt(1)
+    return result.loc[~conflicts].drop_duplicates(subset=keys).reset_index(drop=True)
+
+
+def validate_clean_pairs(df: pd.DataFrame) -> None:
+    """Reject dirty input before splitting; never repair each split independently."""
+    canonical = canonicalize_pairs(df)
+    if canonical.duplicated(subset=_pair_columns(canonical)).any():
+        raise ValueError('Duplicate/conflicting unordered pair within context; clean the full table before splitting.')
+
+
+def balance_binary_pairs(df: pd.DataFrame, random_seed: int = 43) -> pd.DataFrame:
+    """Downsample whichever class is larger to create a true 1:1 cell table."""
+    validate_clean_pairs(df)
+    pos = df[df[CLASSLABEL_COLNAME] == 1]
+    neg = df[df[CLASSLABEL_COLNAME] == 0]
+    size = min(len(pos), len(neg))
+    if size == 0:
+        raise ValueError('A 1:1 table requires both classes; exclude single-class cells explicitly.')
+    return pd.concat([part.sample(n=size, random_state=random_seed) for part in [pos, neg]],
+                     ignore_index=True).sample(frac=1, random_state=random_seed).reset_index(drop=True)
 
 
 def df_gene2id(df: pd.DataFrame) -> pd.DataFrame:
     df[GENE1_COLNAME] = df[GENE1_COLNAME].map(gn2gid)
     df[GENE2_COLNAME] = df[GENE2_COLNAME].map(gn2gid)
     df = df.dropna(ignore_index=True)  # NOTE: drop genes not in SynlethDB
+    df[GENE1_COLNAME] = df[GENE1_COLNAME].astype(int)
+    df[GENE2_COLNAME] = df[GENE2_COLNAME].astype(int)
     return df
 
 
@@ -118,13 +167,21 @@ def visualize_gene_freq(gene_count: dict, max_gene_show: int = 200, show_yval_st
 
 
 def are_dataframes_equal(df1: pd.DataFrame, df2: pd.DataFrame) -> bool:
-    return (not df1.duplicated().any()) and (not df1.duplicated().any()) and len(df1) == len(df2) \
-            and set(tuple(x) for x in df1.values) == set(tuple(x) for x in df2.values)
+    if (not df1.columns.is_unique or not df2.columns.is_unique
+            or set(df1.columns) != set(df2.columns)):
+        return False
+    aligned = df2.loc[:, df1.columns]
+    return (not df1.duplicated().any()) and (not aligned.duplicated().any()) and len(df1) == len(aligned) \
+            and set(df1.itertuples(index=False, name=None)) == set(aligned.itertuples(index=False, name=None))
 
 
 def are_dataframes_subset(df1: pd.DataFrame, df2: pd.DataFrame) -> bool:
-    return (not df1.duplicated().any()) and (not df2.duplicated().any()) \
-            and set(tuple(x) for x in df1.values) <= set(tuple(x) for x in df2.values)
+    if (not df1.columns.is_unique or not df2.columns.is_unique
+            or set(df1.columns) != set(df2.columns)):
+        return False
+    aligned = df2.loc[:, df1.columns]
+    return (not df1.duplicated().any()) and (not aligned.duplicated().any()) \
+            and set(df1.itertuples(index=False, name=None)) <= set(aligned.itertuples(index=False, name=None))
 
 
 def check_C2_property(test_df: pd.DataFrame, train_df: pd.DataFrame) -> pd.DataFrame:
@@ -154,8 +211,10 @@ def check_C3_property(test_df: pd.DataFrame, train_df: pd.DataFrame) -> bool: #p
     return True  #test_df
 
 
-def numpy2df(arr: np.ndarray):
-    return pd.DataFrame(arr, columns=[GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME])
+def numpy2df(arr: np.ndarray, context: str):
+    df = pd.DataFrame(arr, columns=[GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME])
+    df[CONTEXT_COLNAME] = context
+    return df
 
 
 def get_pairs(sl_pairs: np.ndarray[int], train_genes: np.ndarray[int], test_genes: np.ndarray[int], type: int) -> list[list[int]]:
@@ -175,19 +234,25 @@ def get_pairs(sl_pairs: np.ndarray[int], train_genes: np.ndarray[int], test_gene
 
 class SpecificSplit():
     def __init__(self, df: pd.DataFrame, save_path: Path, fold_num: int = 5, valid_ratio: int = 5, random_seed: int = 43) -> None:
-        self.df = df
+        validate_clean_pairs(df)
+
+        self.df = df.copy()
         self.save_path = save_path
         os.makedirs(self.save_path, exist_ok=True)
         self.fold_num = fold_num
         self.valid_ratio = valid_ratio
         self.random_seed = random_seed
 
-    def C1(self) -> None:  #df: pd.DataFrame, save_path: Path, fold_num: int = 5, valid_ratio: int = 5
+        contexts = list(set(self.df[CONTEXT_COLNAME]))
+        assert len(contexts) == 1
+        self.context = contexts[0]
+
+    def C1(self) -> None:
         C1_save_path = f'{self.save_path}/C1'
         os.makedirs(C1_save_path, exist_ok=True)
 
-        sl_np_x = self.df[[GENE1_COLNAME, GENE2_COLNAME]].to_numpy()
-        sl_np_y = self.df[CLASSLABEL_COLNAME].to_numpy()
+        sl_np_x = self.df[[GENE1_COLNAME, GENE2_COLNAME]].to_numpy(dtype=int)
+        sl_np_y = self.df[CLASSLABEL_COLNAME].to_numpy(dtype=int)
 
         # index is the fold
         index = 0
@@ -213,9 +278,9 @@ class SpecificSplit():
             test_y = sl_np_y[test_index].reshape(-1, 1)
             test_data = np.concatenate((test_x, test_y), axis=1)
 
-            train_data = numpy2df(train_data)
-            valid_data = numpy2df(valid_data)
-            test_data = numpy2df(test_data)
+            train_data = numpy2df(train_data, self.context)
+            valid_data = numpy2df(valid_data, self.context)
+            test_data = numpy2df(test_data, self.context)
             assert are_dataframes_equal(pd.concat([train_data, valid_data, test_data], ignore_index=True), self.df)
 
             train_data.to_csv(f'{C1_save_path}/sl_train_{index}.csv', index=False)
@@ -223,12 +288,12 @@ class SpecificSplit():
             test_data.to_csv(f'{C1_save_path}/sl_test_{index}.csv', index=False)
             index += 1
 
-    def C2(self) -> None:  #df: pd.DataFrame, save_path: Path, fold_num: int = 5, valid_ratio: int = 5
+    def C2(self) -> None:
         C2_save_path = f'{self.save_path}/C2'
         os.makedirs(C2_save_path, exist_ok=True)
 
         genes = np.array(list(set(self.df[GENE1_COLNAME]) | set(self.df[GENE2_COLNAME])))
-        sl_pairs = self.df.to_numpy()
+        sl_pairs = self.df[[GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME]].to_numpy(dtype=int)
 
         index = 0
         kf = KFold(n_splits=self.fold_num, shuffle=True, random_state=self.random_seed)
@@ -248,9 +313,9 @@ class SpecificSplit():
             valid_c2_data = get_pairs(sl_pairs, train_train_genes, test_genes=train_valid_genes, type=2)
             test_c2_data = get_pairs(sl_pairs, train_train_genes, test_genes, type=2)
 
-            train_data = numpy2df(train_data)
-            valid_c2_data = numpy2df(valid_c2_data)
-            test_c2_data = numpy2df(test_c2_data)
+            train_data = numpy2df(train_data, self.context)
+            valid_c2_data = numpy2df(valid_c2_data, self.context)
+            test_c2_data = numpy2df(test_c2_data, self.context)
             assert are_dataframes_subset(pd.concat([train_data, valid_c2_data, test_c2_data], ignore_index=True), self.df)
             test_c2_data = check_C2_property(test_c2_data, train_data)  #pd.concat([train_data, valid_c2_data], ignore_index=True)
             valid_c2_data = check_C2_property(valid_c2_data, train_data)
@@ -260,12 +325,12 @@ class SpecificSplit():
             test_c2_data.to_csv(f'{C2_save_path}/sl_test_{index}.csv', index=False)
             index += 1
     
-    def C3(self) -> None:  #df: pd.DataFrame, save_path: Path, fold_num: int = 5, valid_ratio: int = 5
+    def C3(self) -> None:
         C3_save_path = f'{self.save_path}/C3'
         os.makedirs(C3_save_path, exist_ok=True)
 
         genes = np.array(list(set(self.df[GENE1_COLNAME]) | set(self.df[GENE2_COLNAME])))
-        sl_pairs = self.df.to_numpy()
+        sl_pairs = self.df[[GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME]].to_numpy(dtype=int)
 
         index = 0
         kf = KFold(n_splits=self.fold_num, shuffle=True, random_state=self.random_seed)
@@ -285,9 +350,9 @@ class SpecificSplit():
             valid_c3_data = get_pairs(sl_pairs, train_train_genes, test_genes=train_valid_genes, type=3)
             test_c3_data = get_pairs(sl_pairs, train_train_genes, test_genes, type=3)
 
-            train_data = numpy2df(train_data)
-            valid_c3_data = numpy2df(valid_c3_data)
-            test_c3_data = numpy2df(test_c3_data)
+            train_data = numpy2df(train_data, self.context)
+            valid_c3_data = numpy2df(valid_c3_data, self.context)
+            test_c3_data = numpy2df(test_c3_data, self.context)
             assert are_dataframes_subset(pd.concat([train_data, valid_c3_data, test_c3_data], ignore_index=True), self.df)
             assert check_C3_property(test_c3_data, pd.concat([train_data, valid_c3_data], ignore_index=True))  #
             assert check_C3_property(valid_c3_data, train_data)
@@ -313,7 +378,7 @@ class SpecificSplit():
         test_df = tail_df[:target_len] if len(tail_df) > target_len else tail_df  # select some tails to form test set
 
         train_df = df.merge(test_df, how='left', indicator=True)  # train df = whole df - test df
-        train_df = train_df[train_df['_merge'] == 'left_only'][[GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME]]  #, CONTEXT_COLNAME
+        train_df = train_df.loc[train_df['_merge'] == 'left_only', df.columns]
 
         assert are_dataframes_equal(pd.concat([train_df, test_df], ignore_index=True), df)
 
@@ -321,7 +386,7 @@ class SpecificSplit():
             test_df.to_csv(f'{save_path}/sl_test_{fold}.csv', index=False)
         return train_df
 
-    def Tail(self) -> None:  #df: pd.DataFrame, save_path: Path, fold_num: int = 5
+    def Tail(self) -> None:
         tail_save_path = f'{self.save_path}/Tail'
         os.makedirs(tail_save_path, exist_ok=True)
 
@@ -329,7 +394,7 @@ class SpecificSplit():
         if df is None:
             return None
 
-        sl_pairs = df.to_numpy()
+        sl_pairs = df[[GENE1_COLNAME, GENE2_COLNAME, CLASSLABEL_COLNAME]].to_numpy(dtype=int)
         train_genes = np.array(list(set(df[GENE1_COLNAME]) | set(df[GENE2_COLNAME])))
 
         kf_train_valid = KFold(n_splits=self.fold_num, shuffle=True, random_state=self.random_seed)
@@ -341,8 +406,8 @@ class SpecificSplit():
             train_pairs = get_pairs(sl_pairs, train_train_genes, test_genes=None, type=1)
             valid_pairs = get_pairs(sl_pairs, train_train_genes, test_genes=train_valid_genes, type=3)
 
-            train_df = numpy2df(train_pairs)
-            val_df = numpy2df(valid_pairs)
+            train_df = numpy2df(train_pairs, self.context)
+            val_df = numpy2df(valid_pairs, self.context)
 
             assert are_dataframes_subset(pd.concat([train_df, val_df], ignore_index=True), df)
             assert check_C3_property(val_df, train_df)
@@ -360,16 +425,18 @@ class SpecificSplit():
 class OnetoOneSplit():
     def __init__(self, source_df: pd.DataFrame, target_df: pd.DataFrame,
                  save_path: Path, fold_num: int = 5, random_seed: int = 43) -> None:
-        self.source_df = source_df
-        self.target_df = target_df
+        validate_clean_pairs(source_df)
+        validate_clean_pairs(target_df)
+        self.source_df = source_df.copy()
+        self.target_df = target_df.copy()
         self.save_path = save_path
         os.makedirs(self.save_path, exist_ok=True)
         self.fold_num = fold_num
         self.random_seed = random_seed
 
     def split(self) -> None:
-        sl_np_x = self.source_df[[GENE1_COLNAME, GENE2_COLNAME]].to_numpy()
-        sl_np_y = self.source_df[CLASSLABEL_COLNAME].to_numpy()
+        sl_np_x = self.source_df[[GENE1_COLNAME, GENE2_COLNAME]].to_numpy(dtype=int)
+        sl_np_y = self.source_df[CLASSLABEL_COLNAME].to_numpy(dtype=int)
 
         kf = StratifiedKFold(n_splits=self.fold_num, shuffle=True, random_state=self.random_seed)
 
@@ -389,7 +456,8 @@ class OnetoOneSplit():
 class MultitoOneSplit(OnetoOneSplit):
     def __init__(self, source_dfs: dict[str, pd.DataFrame], target_df: pd.DataFrame,
                  target_context: str, save_path: Path, fold_num: int = 5,
-                 random_seed: int = 43) -> None:
+                 random_seed: int = 43, balanced: bool = False) -> None:
+        self.balanced = balanced
         if len(source_dfs) < 2:
             raise ValueError('MultitoOneSplit requires at least two source contexts.')
         if target_context in source_dfs:
@@ -413,6 +481,32 @@ class MultitoOneSplit(OnetoOneSplit):
             fold_num=fold_num,
             random_seed=random_seed,
         )
+
+    def split(self) -> None:
+        if not self.balanced:
+            return super().split()
+        # Match positive/negative fold sizes within each source context.
+        # Unlike splitting the concatenated labels, this is exactly 1:1 even
+        # when the number of positives is not divisible by fold_num.
+        counts = self.target_df[CLASSLABEL_COLNAME].value_counts()
+        if counts.get(0, 0) != counts.get(1, 0) or not counts.get(1, 0):
+            raise ValueError('Balanced multi-to-one requires a balanced target table')
+        trains = [[] for _ in range(self.fold_num)]
+        vals = [[] for _ in range(self.fold_num)]
+        for context, frame in self.source_df.groupby(CONTEXT_COLNAME, sort=True):
+            positive = frame[frame[CLASSLABEL_COLNAME] == 1].reset_index(drop=True)
+            negative = frame[frame[CLASSLABEL_COLNAME] == 0].sample(frac=1, random_state=self.random_seed + 1).reset_index(drop=True)
+            if len(positive) != len(negative) or len(positive) < self.fold_num:
+                raise ValueError(f'{context}: need balanced classes with at least fold_num pairs each')
+            kf = KFold(n_splits=self.fold_num, shuffle=True, random_state=self.random_seed)
+            for fold, (train, val) in enumerate(kf.split(positive)):
+                trains[fold].extend([positive.iloc[train], negative.iloc[train]])
+                vals[fold].extend([positive.iloc[val], negative.iloc[val]])
+        for fold in range(self.fold_num):
+            for split, parts in [('train', trains[fold]), ('val', vals[fold])]:
+                frame = pd.concat(parts, ignore_index=True).sample(frac=1, random_state=self.random_seed + fold)
+                frame.to_csv(f'{self.save_path}/sl_{split}_{fold}.csv', index=False)
+            self.target_df.to_csv(f'{self.save_path}/sl_test_{fold}.csv', index=False)
 
 
 def count_specific_statistics(table_save_path: Path) -> pd.DataFrame:
@@ -509,6 +603,16 @@ def gid2uid_all(data_path: Path, save_path: Path, fold: int = 5) -> None:
 #     test_df_uid.to_csv(f'{save_root}/{cl}.csv', index=False)
 
 
+def _save_pair_folds(path: Path, folds: list[np.ndarray]) -> None:
+    # Unequal fold sizes need explicit object storage in modern NumPy.
+    if len({array.shape for array in folds}) > 1:
+        arrays = np.empty(len(folds), dtype=object)
+        arrays[:] = folds
+    else:
+        arrays = np.asarray(folds)
+    np.save(path, arrays)
+
+
 def construct_data_npy(data_path: Path, save_path: Path, fold: int = 5, have_val: bool = True) -> None:
     sl_pos_train = []
     sl_neg_train = []
@@ -524,15 +628,15 @@ def construct_data_npy(data_path: Path, save_path: Path, fold: int = 5, have_val
             sl_data_val = pd.read_csv(os.path.join(data_path, f'sl_val_{i}.csv'))
             sl_data_test = pd.read_csv(os.path.join(data_path, f'sl_test_{i}.csv'))
         else:
-            sl_data_test = pd.read_csv(os.path.join(data_path, f'sl_val_{i}.csv'))  # NOTE: Use val as test set
+            sl_data_test = pd.read_csv(os.path.join(data_path, f'sl_test_{i}.csv'))  # have_val only controls validation export
 
-        sl_data_pos_train = sl_data_train[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_train[CLASSLABEL_COLNAME] == 1].to_numpy()
-        sl_data_neg_train = sl_data_train[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_train[CLASSLABEL_COLNAME] == 0].to_numpy()
+        sl_data_pos_train = sl_data_train[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_train[CLASSLABEL_COLNAME] == 1].to_numpy(dtype=int)
+        sl_data_neg_train = sl_data_train[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_train[CLASSLABEL_COLNAME] == 0].to_numpy(dtype=int)
         if have_val:
-            sl_data_pos_val = sl_data_val[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_val[CLASSLABEL_COLNAME] == 1].to_numpy()
-            sl_data_neg_val = sl_data_val[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_val[CLASSLABEL_COLNAME] == 0].to_numpy()
-        sl_data_pos_test = sl_data_test[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_test[CLASSLABEL_COLNAME] == 1].to_numpy()
-        sl_data_neg_test = sl_data_test[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_test[CLASSLABEL_COLNAME] == 0].to_numpy()
+            sl_data_pos_val = sl_data_val[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_val[CLASSLABEL_COLNAME] == 1].to_numpy(dtype=int)
+            sl_data_neg_val = sl_data_val[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_val[CLASSLABEL_COLNAME] == 0].to_numpy(dtype=int)
+        sl_data_pos_test = sl_data_test[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_test[CLASSLABEL_COLNAME] == 1].to_numpy(dtype=int)
+        sl_data_neg_test = sl_data_test[[GENE1_COLNAME, GENE2_COLNAME]][sl_data_test[CLASSLABEL_COLNAME] == 0].to_numpy(dtype=int)
 
         sl_pos_train.append(sl_data_pos_train)
         sl_neg_train.append(sl_data_neg_train)
@@ -543,19 +647,21 @@ def construct_data_npy(data_path: Path, save_path: Path, fold: int = 5, have_val
         sl_neg_test.append(sl_data_neg_test)
 
     os.makedirs(save_path, exist_ok=True)
-    np.save(os.path.join(save_path, 'pos_train.npy'), sl_pos_train)
-    np.save(os.path.join(save_path, 'neg_train.npy'), sl_neg_train)
+    _save_pair_folds(os.path.join(save_path, 'pos_train.npy'), sl_pos_train)
+    _save_pair_folds(os.path.join(save_path, 'neg_train.npy'), sl_neg_train)
     if have_val:
-        np.save(os.path.join(save_path, 'pos_val.npy'), sl_pos_val)
-        np.save(os.path.join(save_path, 'neg_val.npy'), sl_neg_val)
-    np.save(os.path.join(save_path, 'pos_test.npy'), sl_pos_test)
-    np.save(os.path.join(save_path, 'neg_test.npy'), sl_neg_test)
+        _save_pair_folds(os.path.join(save_path, 'pos_val.npy'), sl_pos_val)
+        _save_pair_folds(os.path.join(save_path, 'neg_val.npy'), sl_neg_val)
+    _save_pair_folds(os.path.join(save_path, 'pos_test.npy'), sl_pos_test)
+    _save_pair_folds(os.path.join(save_path, 'neg_test.npy'), sl_neg_test)
 
 
 def extract_sparse_mat_from_df(df_path: Path) -> tuple[csr_matrix, csr_matrix]:
     df = pd.read_csv(df_path)
-    pos = np.array(df[df[CLASSLABEL_COLNAME] == 1])
-    neg = np.array(df[df[CLASSLABEL_COLNAME] == 0])
+    # Metadata such as context may precede the gene columns in exported CSVs.
+    pair_columns = [GENE1_COLNAME, GENE2_COLNAME]
+    pos = df.loc[df[CLASSLABEL_COLNAME] == 1, pair_columns].to_numpy(dtype=np.int64)
+    neg = df.loc[df[CLASSLABEL_COLNAME] == 0, pair_columns].to_numpy(dtype=np.int64)
     len_ = len(pos)
     len_neg = len(neg)
     sparse_matrix_pos = csr_matrix((np.ones(len_), (pos[:, 0], pos[:, 1])), shape=(9845, 9845)) 
@@ -586,7 +692,7 @@ def construct_data_ptgnn(data_path: Path, save_path: Path = None, fold: int = 5,
             graph_test_pos_kfold.append(sparse_matrix_pos)
             graph_test_neg_kfold.append(sparse_matrix_neg)
         else:
-            sparse_matrix_pos, sparse_matrix_neg = extract_sparse_mat_from_df(os.path.join(data_path, f'sl_val_{i}.csv'))  # NOTE: Use val as test set
+            sparse_matrix_pos, sparse_matrix_neg = extract_sparse_mat_from_df(os.path.join(data_path, f'sl_test_{i}.csv'))  # have_val only controls validation export
             graph_test_pos_kfold.append(sparse_matrix_pos)
             graph_test_neg_kfold.append(sparse_matrix_neg)
 

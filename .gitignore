@@ -1,25 +1,118 @@
-# Python
+# Keep only the main PF4SL/PFSL source and its preparation/runtime dependencies.
+# Local files are never deleted by these rules. New source must be added to the
+# allowlist below; experiments and generated artifacts stay local by default.
+/*
+!/.gitignore
+!/README.md
+!/environment.sh
+!/train.py
+!/test.py
+
+# Vendored training framework, including attribution and configuration.
+!/coach_pl/
+!/coach_pl/**
+
+# Main package. Legacy registration imports are retained so importing pfsl and
+# running the original train.py / script/pf.py entry points still work.
+!/pfsl/
+/pfsl/*
+!/pfsl/__init__.py
+!/pfsl/omics_scaling.py
+!/pfsl/ppi.py
+!/pfsl/configuration/
+/pfsl/configuration/*
+!/pfsl/configuration/prosl.yaml
+!/pfsl/dataset/
+/pfsl/dataset/*
+!/pfsl/dataset/__init__.py
+!/pfsl/dataset/neg_sampler.py
+!/pfsl/dataset/prosl.py
+!/pfsl/dataset/sl.py
+!/pfsl/dataset/sl_raw.py
+!/pfsl/model/
+/pfsl/model/*
+!/pfsl/model/__init__.py
+!/pfsl/model/attention.py
+!/pfsl/model/attn_wrap.py
+!/pfsl/model/calibrator.py
+!/pfsl/model/cnn.py
+!/pfsl/model/linear.py
+!/pfsl/model/lora.py
+!/pfsl/model/mlp.py
+!/pfsl/model/omics.py
+!/pfsl/model/pooling.py
+!/pfsl/model/ppi.py
+!/pfsl/model/prosl.py
+!/pfsl/model/protfunc.py
+!/pfsl/model/token_model.py
+!/pfsl/module/
+/pfsl/module/*
+!/pfsl/module/__init__.py
+!/pfsl/module/cls_module.py
+!/pfsl/module/prosl.py
+!/pfsl/module/tent.py
+!/pfsl/module/uncertainty.py
+!/pfsl/utils/
+/pfsl/utils/*
+!/pfsl/utils/metric.py
+
+# Current paper model: no_graph_concat in fusion.py. The other four files are
+# direct runtime imports of train_pfsl_next.py and its shared feature loader.
+!/pfsl/next/
+/pfsl/next/*
+!/pfsl/next/__init__.py
+!/pfsl/next/data.py
+!/pfsl/next/model.py
+!/pfsl/next/fusion.py
+!/pfsl/next/da.py
+
+# Main launchers and shared feature-bank preparation. Despite its historical
+# name, slkb_baseline_common.py supplies split loading to the main runner.
+!/script/
+/script/*
+!/script/pf.py
+!/script/train_pfsl_next.py
+!/script/prepare_ppi.py
+!/script/prepare_next_bank.py
+!/script/slkb_baseline_common.py
+
+# Main SLKB splits and UniProt text preparation; baseline adapters and result
+# collectors in these directories are deliberately excluded.
+!/data_preprocess/
+/data_preprocess/*
+!/data_preprocess/preprocess.ipynb
+!/data_preprocess/ccle_filter.ipynb
+!/data_preprocess/utils.py
+!/pfsl_process/
+/pfsl_process/*
+!/pfsl_process/pf.ipynb
+!/pfsl_process/text_pre.py
+!/pfsl_process/utils.py
+
+# Regression checks for training-gene normalization and structural ablations.
+!/tests/
+/tests/*
+!/tests/__init__.py
+!/tests/test_strict_protocol.py
+
+# The root allowlist excludes, among others:
+# data/, sc_data/, output/, external_data/, *metric_count*/, pf4sl_*/,
+# paper*/, research/, docs/, esmc_sae/, pfsl_graph/, pfsl/uq/,
+# pfsl_process/sae/, and baseline/SAE/LLM/experimental launch scripts.
+
+# Safety rules also apply inside allowed directories.
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.tox/
-.nox/
+.ipynb_checkpoints/
 .coverage
 .coverage.*
 htmlcov/
-
-# Notebooks and editors
-.ipynb_checkpoints/
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-
-# Environments and local configuration
+.tox/
+.nox/
 .env
 .env.*
 !.env.example
@@ -32,52 +125,12 @@ env/
 *.pfx
 credentials*.json
 secrets*.json
-
-# Local credential-bearing source (do not commit until the key is removed)
-/pfsl_process/cl_llm.py
-
-# Runtime logs and experiment tracking
 *.log
 logs/
 runs/
 lightning_logs/
 wandb/
 tb_logs/
-
-# Project datasets and generated results
-/data/
-/sc_data/
-/output/
-/esm4sl_metric_count/
-/pfsl_metric_count/
-
-# ESMC-SAE local artifacts and historical experiment records
-/.superpowers/
-/esmc_sae/.superpowers/
-/esmc_sae/cache/
-/esmc_sae/case_study/
-/esmc_sae/docs/
-/esmc_sae/experiment2/
-/esmc_sae/experiment3/
-/esmc_sae/interpret_data/
-/esmc_sae/manifests/
-/esmc_sae/reports/
-/esmc_sae/runs/
-/esmc_sae/bridge/
-/esmc_sae/configs/
-
-# Local pretrained models, embeddings, and derived analyses
-/pfsl_process/ESMC/
-/pfsl_process/PubmedBERT/
-/pfsl_process/cl_embed/
-/pfsl_process/retrieval/
-/pfsl_process/att_map/
-/pfsl_process/comparison/
-/pfsl_process/func_aspect_ablation/
-/pfsl_process/func_aspect_ablation_use/
-/pfsl_process/new_ablation/
-
-# Model weights and serialized/large data
 *.pt
 *.pth
 *.ckpt
@@ -94,6 +147,8 @@ tb_logs/
 *.arrow
 *.feather
 *.parquet
+*.csv
+*.tsv
 *.jsonl
 *.jsonl.gz
 *.csv.gz
@@ -103,31 +158,8 @@ tb_logs/
 *.tgz
 *.zip
 *.7z
-
-# additional
-script/*
-!/script/pf.py
-tests
-*old*
-*.tsv
-*.csv
-tent.py
-*temp*
-*docs*
-
-pfsl_graph/
-
-pfsl/output
-pfsl/configuration/*
-!/pfsl/configuration/prosl.yaml
-
-pfsl/dataset/sl_emb.py
-pfsl/dataset/sl_raw.py
-
-data_preprocess/ptgnn.ipynb
-data_preprocess/*test*
-data_preprocess/*.jpg
-
-pfsl/model/*att*
-pfsl/model/*token*
-pfsl/model/*lora*
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
